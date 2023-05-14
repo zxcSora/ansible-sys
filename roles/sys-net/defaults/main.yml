@@ -1,0 +1,274 @@
+---
+# sys-net
+# =======
+
+# Роль берет на себя конфигурирование сетевых интерфейсов
+# с помощью изменения файлов /etc/interfaces /etc/interfaces.d/*
+# Роль ожидает на вход список network, со включенными в него множество переменных, описанных ниже
+
+# Пример playbook для роли
+
+# .. code-block: yaml
+#    ---
+#    - name: NETWORK CONFIGURATION
+#      become: true
+#      gather_facts: true
+#      roles:
+#        - role: "../roles/sys/roles/sys-net"
+#          network:
+#            support:
+#              vlan: true
+#              bridge: true
+#              bonding: true
+#              traffic_forwarding: true
+#              ipv6: true
+#
+#            purge_orphaned_interfaces: true
+#
+#            interfaces:  # for more config-details see: https://wiki.debian.org/NetworkConfiguration
+#              ens192:
+#                address: '192.168.142.90/24'
+#                gateway: '192.168.142.1'
+#                script_post-up: ['ip route add 172.16.100.0/24 dev ens192 src 192.168.142.90 via 192.168.142.10']
+#                aliases:
+#                  - address: '2a09:cd41:f:42ee::1'
+#                    gateway: '2a09:cd41:f:42ee::f'
+#                  - '2a09:cd41:f:42ee::1'
+#              bridge01:
+#                bridge_ports: ['ens193', 'ens194']
+#                script_down: ['/usr/local/sbin/random_script.sh']
+#              ens195:  # initialize parent interface
+#              ens195.85:
+#                vlan: true
+#                hotplug: false
+#                address: '10.0.85.90/24'
+#                gateway: '10.0.85.1'
+#                nameservers: ['10.0.85.1']
+#              # nic bonding
+#              #   supported modes: 'balance-rr', 'active-backup', 'balance-xor', 'broadcast', '802.3ad', 'balance-tlb', 'balance-alb', 'lacp' (lacp => alias for 802.3ad)
+#              #   lacp bonding => lacp needs the switch-ports to be configured as well
+#              bond01:
+#                bond-mode: '802.3ad'
+#                bond-lacp-rate: 1
+#                bond-miimon: 100
+#                address: '192.168.200.10/26'
+#                bond-slaves: ['ens196', 'ens197']  # don't define slave interfaces on their own
+#              #   active-passive bonding
+#              bond02:
+#                bond-mode: 'active-passive'
+#                address: '192.168.210.10/26'
+#                bond-slaves: ['ens198', 'ens199']
+#                # bond-primary: 'ens198'  # if no primary is defined, it will be chosen automatically
+#
+#            verification:
+#              enable: true
+#              tests:
+#                ping:
+#                  google_dns: '8.8.8.8'
+#                netcat:
+#                  internal_web:
+#                    host: 'someSite.internal'
+#                    port: 443
+#
+#            startup_service:
+#              enable: true
+#              interfaces:
+#                tunnel01:
+#                  type: 'vti'
+#                  args:
+#                    key: 32
+#                    local: '192.168.133.1'
+#                    remote: '192.168.133.2'
+#
+#              routes:
+#                '192.168.142.1':
+#                  - net: '10.10.40.0/22'
+#                    metric: 50
+#                tunnel01:
+#                  - net: '10.10.52.0/24'
+#
+#              routes_cmd:
+#                - 'ip route add 0.0.0.0/0 via 192.168.142.254 metric 200'
+
+# Переменные по умолчанию:
+# ------------------------
+
+# Словарь, основных переменных роли
+defaults_ne:
+  support:
+    vlan: false
+    bridge: true
+    bonding: false
+    traffic_forwarding: true
+    ipv6: true
+
+# Влияет на то, будут ли установлены пакеты для управления сетевыми настройками
+  install_tools: true
+
+# Список пакетов для управления сетевыми настройками
+  tools:
+    - 'iftop=1.0*'
+    - 'net-tools=1.6*'
+    - 'dnsutils=1:9.*'
+    - 'iproute2=*'
+
+# Список пакетов для управления bonding. Обрабатывается, если network.support.bonding: true
+  bonding_tools:
+    - 'ifenslave'
+
+# Список пакетов для управления bridge. Обрабатывается, если network.support.bridge: true
+  bridge_tools:
+    - 'bridge-utils'
+
+# Словарь, в котором будут определены настройки определенного интерфейса
+  interfaces: {}
+
+# Нужно ли рестартить сеть
+  restart_networking: false
+
+# Востановить бриджы после рестара сервиса networking
+  save_bridges: true
+
+# Если значение true, тогда при применении роли, будут удалены все существующие конфигурационные
+# файлы из /etc/interfaces.d/* и удалены интерфейсы с именем(!) конфигурационного файла
+  purge_orphaned_interfaces: true
+
+# Если значение true, то тогда роль берет на себя контроль основного файла конфигурации
+# /etc/network/interfaces
+  reconfigure_main_interfaces: false
+
+# NOTE: the role will fail if the interface (ip) changes
+# IF the ip address changes, and you want the execution to re-connect to the new one
+# post_apply_ip: '192.168.1.1'
+
+  reload_timeout: 5
+
+# Проверка изменений сетевых настроек
+  verification:
+    enable: false
+# Проверка происходит посредством выполнения python3 скрипта, работающим как systemd служба
+# Служба проверит сетевое соединение до и после изменения конфигурации сети
+# Если проверка не пройдена - конфигурация сети будет восстановлена до прежнего состояния
+# /etc/interfaces* будет скопирован в /tmp/ в случае ошибки
+
+# Как часто следует повторять тесты перед восстановлением предыдущего состояния конфигурации
+    retries: 3
+
+# Секунд ожидания между попытками
+    retry_wait: 0.3
+
+# Тайм-аут на тест в секундах
+    test_timeout: 1
+    apply_timeout: 30
+    logging: true
+    syslog_id: 'ansibleguy.linux_networking.activate_network'
+    tests:
+# Может быть списком некоторых внутренних адресов, которые ДОЛЖНЫ быть доступными
+      ping:
+        google_dns: '8.8.8.8'
+
+# Проверка удаленного порта на доступность
+      # netcat:
+      #   google_web:
+      #     host: 'google.com'
+      #     port: 443
+
+# Служба позволит настроить пользовательские интерфейсы и маршрутизацию
+# она подключается к 'networking.service' по умолчанию, поэтому она применяется каждый раз, когда сеть перезагружается
+  startup_service:
+    enable: false
+    script: 'startup.sh'
+    name: 'ansibleguy.linux_networking.startup.service'
+    syslog_id: 'ansibleguy.linux_networking.startup'
+
+# Словарь интерфейсов, который будет создан этой службой
+    interfaces: {}
+    # example:
+    #  tunnel01:
+    #    type: 'vti'
+    #    args:
+    #      key: 32
+    #      local: '192.168.133.1'
+    #      remote: '192.168.133.2'
+    #    addr: ['192.168.132.254/24']
+
+# Словарь пользовательских 'ip link add...' комманд
+    interfaces_cmd: {}
+    # example:
+    #  startup_interfaces_cmd:
+    #    - 'ip link add name gre1 type ip6gre local LOCAL_IPv6_ADDR remote REMOTE_IPv6_ADDR'
+    #    - 'ip link add name gretap1 type ip6gretap local LOCAL_IPv6_ADDR remote REMOTE_IPv6_ADDR'
+
+# Словарь маршрутов, которые будут созданы этой службой
+    routes: {}
+    # example:
+    #   startup_routes:
+    #     '192.168.142.1':  # gateway to use; can be ip or device name
+    #       - net: 10.10.42.0/22  # network to route
+    #         metric: 50  # settings like route-metric
+
+# Словарь пользовательских 'ip route add...' комманд
+    routes_cmd: {}
+    # example:
+    #  startup_interfaces_cmd:
+    #    - 'ip route add 10.10.42.0/22 dev tunnel0'
+    #    - 'ip route add 0.0.0.0 via 192.168.22.1 metric 200'
+
+# Собранный словарь из словаря defaults_ne
+nw: "{{ defaults_ne | combine(network, recursive=true) }}"
+
+# Общий настройки сетевых интерфейсов.
+# Для подробной информации: https://wiki.debian.org/NetworkConfiguration
+defaults_interface:
+  auto: true
+  method: 'static'
+  hotplug: true
+  nameservers: ['8.8.8.8', '1.1.1.1']
+  subnets: []
+  switching: false
+  vlan: false
+  bonding:
+    bond-downdelay: 200
+    bond-updelay: 200
+    bond-miimon: 100
+# Создание алиасов интерфейса
+  aliases: []
+  #  - address: 'fe80::100/10'
+  #    gateway: 'fe80::1'
+
+# HARDCODED PARAMETERS
+nw_hc:
+# Желательно не менять данные значения
+  network_script_dir: '/usr/local/sbin/ansibleguy.linux_networking'
+  network_apply_timeout: 30  # Как долго нужно ждать для переподключения ssh-соединения
+  verification:
+    script: 'activate_network.py'
+    backup_path_separator: '___'
+    log_output_lines: 7
+    service: 'ansibleguy.linux_networking.activate_network.service'
+    packages: ['systemd', 'fping', 'netcat']
+  sysctl:
+    forwarding:
+      enable:
+        'net.ipv4.ip_forward': 1
+        'net.ipv4.conf.all.arp_filter': 0
+        'net.ipv4.conf.all.rp_filter': 2
+      disable:
+        'net.ipv4.ip_forward': 0
+    ipv6:
+      disable:
+        'net.ipv6.conf.all.disable_ipv6': 1
+        'net.ipv6.conf.default.disable_ipv6': 1
+        'net.ipv6.conf.lo.disable_ipv6': 1
+      enable:
+        'net.ipv6.conf.all.disable_ipv6': 0
+        'net.ipv6.conf.default.disable_ipv6': 0
+        'net.ipv6.conf.lo.disable_ipv6': 0
+  bonding_modes: [
+    'balance-rr', 'active-backup', 'balance-xor', 'broadcast',
+    '802.3ad', 'balance-tlb', 'balance-alb',
+    0, 1, 2, 3, 4, 5, 6, '0', '1', '2', '3', '4', '5', '6', 'lacp'
+  ]
+# Python модуль, который должен быть установлен на контроллере Ansible
+# Необходим для обработки адресов фильтрами, определяющими адреса, версию IP
+  controller_required_mods: ['netaddr']

@@ -1,0 +1,9 @@
+---
+sys_clean_apt: "no"
+sys_clean_history: "no"
+sys_clean_logs: "no"
+sys_clean_purge: "no"  # zero all block devices
+sys_clean_files:
+  - "/etc/dhcp/dhclient.d/google_hostname.sh"
+  - "/etc/dhcp/dhclient-exit-hooks.d/google_set_hostname"
+sys_clean_custom_files: []

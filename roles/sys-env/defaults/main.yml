@@ -1,0 +1,20 @@
+---
+sys_env_vimrc_set: "yes"
+sys_env_vimrc: |
+  set mouse=
+  set ttymouse=
+  syntax on
+  set background=dark
+
+# https://vcs.bingo-boom.ru/site-ng/ansible/preconf/blob/master/templates/motd
+# sys_env_kvm_ip: "no"
+
+sys_env_motd_update: "no"
+sys_env_motd_purge: "no"
+sys_env_motd_dynamic_templates:
+  - "templates/etc/update-motd.d/20-tb-sysinfo.j2"
+  - "templates/etc/update-motd.d/35-tb-diskspace.j2"
+  - "templates/etc/update-motd.d/50-tb-fail2ban-status.j2"
+  - "templates/etc/update-motd.d/60-tb-docker.j2"
+  - "templates/etc/update-motd.d/70-tb-grafana.j2"
+sys_env_motd_static_template: "templates/etc/motd.j2"

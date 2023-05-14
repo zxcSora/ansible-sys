@@ -1,0 +1,48 @@
+---
+sys_user_groups: []
+# - name: "example"
+#   state: "present"
+#   gid: "8008"
+
+# - name: "example"
+#   state: "absent"
+
+sys_user_ansible_pubs:
+  - "{{ lookup('file', 'files/ssh_pubs/anna_yablunovskaya.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/igor_sidorov.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/stas_lopatin.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/sy_lopatin.pub')}}"
+  - "{{ lookup('file', 'files/ssh_pubs/vladimir_fedorchuk.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/denis_ryabuy.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/vg_evsyukov.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/ansible.1.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/ansible.2.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/ay_derevyashkin.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/dy_zheleztsov.pub') }}"
+  - "{{ lookup('file', 'files/ssh_pubs/ea_letyagin.pub') }}"
+sys_user_additional_ansible_pubs: []
+sys_user_ansible_groups: "sudo"
+sys_user_accounts:
+  - name: "ansible"
+    state: "present"
+    groups: "{{ sys_user_ansible_groups }}"  # '' - only primary
+    comment: "CICD"
+    shell: "/bin/bash"
+    password: "*"  # '!'' - disabled block ssh access,  '*' - not block ssh
+#   system: false
+#   home: ""
+#   move_home: true
+#   group: "group_should_exist"
+#   expires: "-1" # -1 - never, 1422403387 - since epoch
+#   create_home: true
+#   uid: 8008
+#   password: '!'
+#   inactive_timeout: "90" #days
+    ssh_pubs: "{{ sys_user_ansible_pubs }}"
+
+  - name: "debian"
+    state: "absent"
+
+  - name: "root"
+    state: "present"
+    password: '!'

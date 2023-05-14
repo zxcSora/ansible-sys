@@ -1,0 +1,57 @@
+---
+- name: Network | Apply | Stat brctl util
+  stat:
+    path: /usr/sbin/brctl
+  register: brctl
+
+- name: Network | Apply | Get bridge name
+  shell: |
+    brctl show | grep -v "bridge name" | head -n 1 | awk '{print $1}'
+  register: br_name
+  when:
+    - brctl.stat.exists
+    - nw.save_bridges
+
+- name: Network | Apply | Save bridge ifaces
+  shell: |
+    brctl show | grep -v "bridge name" | awk '{print $NF}'
+  register: br_ifaces
+  when:
+    - brctl.stat.exists
+    - nw.save_bridges
+
+- name: Network | Apply | Applying network config w/o verifier
+  systemd:
+    name: 'networking.service'
+    state: restarted
+    no_block: true
+  ignore_errors: true
+  async: "{{ nw.reload_timeout }}"
+  poll: 2
+
+- name: Network | Apply | Restore bridges
+  shell: "brctl addif {{ br_name.stdout }} {{ item }}"
+  when:
+    - brctl.stat.exists
+    - nw.save_bridges
+  loop: '{{ br_ifaces.stdout.split("\n") }}'
+
+- name: Network | Apply | Updating ip used in this execution
+  set_fact:
+    ansible_host: "{{ post_apply_ip }}"
+  when: nw.post_apply_ip is defined
+
+- name: Network | Apply | Waiting to re-establish connection
+  wait_for_connection:
+    timeout: "{{ nw_hc.network_apply_timeout }}"
+  register: connection_restore
+  ignore_errors: true
+
+- name: Network | Apply | Unable to connect
+  fail:
+    msg: 'It seems like we lost the connection to the target-host. (but might so if the ip was changed on purpose..)
+    This will most probably be a configuration-issue!
+    Consider using the network-verifier in the future!'
+  when:
+    - connection_restore.failed is defined
+    - connection_restore.failed

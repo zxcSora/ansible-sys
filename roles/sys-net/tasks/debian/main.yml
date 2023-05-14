@@ -1,0 +1,25 @@
+---
+# todo: check if bug that debian reset's to dhcp before after-config-reboot is a role-issue
+- name: Network | Configuring startup-service
+  import_tasks: startup.yml
+  when: nw.startup_service.enable
+  tags: [routing, interfaces]
+
+- name: Network | Configuring network interfaces
+  import_tasks: interfaces.yml
+  tags: interfaces
+  when:
+    - nw.interfaces is defined
+    - nw.interfaces | length > 0
+
+- name: Network | Applying network config via verifier
+  import_tasks: verification.yml
+  when: nw.verification.enable
+  tags: [routing, interfaces, base]
+
+- name: Network | Applying network config w/o verification
+  import_tasks: apply.yml
+  when:
+    - not nw.verification.enable
+    - nw.restart_networking
+  tags: [routing, interfaces, base]

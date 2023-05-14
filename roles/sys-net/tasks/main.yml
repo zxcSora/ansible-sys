@@ -1,0 +1,172 @@
+---
+- name: Network | Installing dependencies on controller
+  pip:
+    name: "{{ nw_hc.controller_required_mods }}"
+    state: present
+  delegate_to: localhost
+  register: install_controller_requirements
+  ignore_errors: true
+  become: false
+  run_once: true
+
+- name: Network | Notify User
+  fail:
+    msg: "You need to install the python module 'netaddr' for this role to work correctly!"
+  run_once: true
+  when:
+    - install_controller_requirements.failed is defined
+    - install_controller_requirements.failed
+
+- name: Network | Remove old verifier config-backups
+  file:
+    path: "{{ nw_hc.network_script_dir }}/backup"
+    state: absent
+  when: nw.verification.enable
+  tags: [routing, interfaces, base]
+  changed_when: false
+
+- name: Network | Re-creating verifier backup-directory
+  file:
+    path: "{{ nw_hc.network_script_dir }}/backup"
+    owner: 'root'
+    group: 'root'
+    state: directory
+    mode: 0755
+  when: nw.verification.enable
+  tags: [routing, interfaces, base]
+  changed_when: false
+
+- name: Network | Installing network tools
+  apt:
+    name: "{{ nw.tools }}"
+    state: present
+  when: nw.install_tools
+
+- name: Network | Installing vlan package
+  apt:
+    name: 'vlan'
+    state: present
+  when: nw.support.vlan
+  tags: interfaces
+  register: prerequisite_vlan_pkg
+
+- name: Network | Add the 802.1q module for vlan support (1/2)
+  modprobe:
+    name: '8021q'
+    state: present
+  when: nw.support.vlan
+  tags: interfaces
+  register: prerequisite_vlan_mod
+
+- name: Network | Add the 802.1q module for vlan support (2/2)
+  blockinfile:
+    path: /etc/modules
+    marker: "# {mark} MANAGED BY ANSIBLE VLAN SYS-NET ROLE"
+    block: |
+      8021q
+  when: prerequisite_vlan_mod.changed
+  tags: interfaces
+
+- name: Network | Installing bonding package
+  apt:
+    name: "{{ nw.bonding_tools }}"
+    state: present
+  when: nw.support.bonding
+  tags: interfaces
+  register: prerequisite_bonding_pkg
+
+- name: Network | Add the bonding module for nic-teaming support (1/2)
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  when: nw.support.bonding
+  tags: interfaces
+  register: prerequisite_bonding_mod
+  loop:
+    - 'bonding'
+    - 'mii'
+
+- name: Network | Add the bonding module for nic-teaming support (2/2)
+  blockinfile:
+    path: /etc/modules
+    marker: "# {mark} MANAGED BY ANSIBLE BONDING SYS-NET ROLE"
+    block: |
+      bonding
+      mii
+  when: prerequisite_bonding_mod.changed
+  tags: interfaces
+
+- name: Network | Installing bridge package
+  apt:
+    name: "bridge-utils"
+    state: present
+  when: nw.support.bridge
+  tags: interfaces
+  register: prerequisite_bridge_pkg
+
+- name: Network | Configuring sysctl to allow traffic forwarding
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    state: present
+    reload: yes
+  with_dict: "{{ nw_hc.sysctl.forwarding.enable }}"
+  when: nw.support.traffic_forwarding
+  tags: routing
+
+- name: Network | Configuring sysctl to dis-allow traffic forwarding
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    state: present
+    reload: yes
+  with_dict: "{{ nw_hc.sysctl.forwarding.disable }}"
+  when: not nw.support.traffic_forwarding
+  tags: routing
+
+- name: Network | Configuring sysctl to enable ipv6
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    state: present
+    reload: yes
+  with_dict: "{{ nw_hc.sysctl.ipv6.enable }}"
+  when: nw.support.ipv6
+  tags: [routing, interfaces]
+
+- name: Network | Configuring sysctl to disable ipv6
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    state: present
+    reload: yes
+  with_dict: "{{ nw_hc.sysctl.ipv6.disable }}"
+  when: not nw.support.ipv6
+  tags: [routing, interfaces]
+
+# I can't seem to find a way to stop ansible from getting stuck when ip changes
+- name: Network | Reloading network after prerequisit-changes
+  systemd:
+    name: 'networking.service'
+    state: restarted
+    no_block: true
+  async: "{{ nw.reload_timeout }}"
+  poll: 2
+  when: >
+    (prerequisite_bonding_mod is defined and prerequisite_bonding_mod.changed) or
+    (prerequisite_bonding_pkg is defined and prerequisite_bonding_pkg.changed) or
+    (prerequisite_bridge_pkg is defined and prerequisite_bridge_pkg.changed)
+
+- name: Network | Waiting to re-establish connection
+  wait_for_connection:
+    timeout: "{{ nw_hc.network_apply_timeout }}"
+  register: connection_restore
+  ignore_errors: true
+
+- name: Network | Processing debian config
+  import_tasks: debian/main.yml
+  when: ansible_distribution|lower == 'debian'

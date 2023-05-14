@@ -1,0 +1,68 @@
+---
+- name: Network | Startup | Creating directories
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    state: directory
+    mode: 0755
+  loop:
+    - "{{ nw_hc.network_script_dir }}"
+    - '/etc/systemd/system/networking.service.d'
+
+- name: Network | Startup | Checking if script exists
+  stat:
+    path: "{{ nw_hc.network_script_dir }}/{{ startup_script }}"
+  register: copy_startup_script_file
+  changed_when: false
+  check_mode: false
+
+- name: Network | Startup | Checking if script changed
+  template:
+    src: "templates/usr/local/sbin/ansibleguy.linux_networking/startup.sh.j2"
+    dest: "{{ nw_hc.network_script_dir }}/{{ startup_script }}"
+    owner: root
+    group: root
+    mode: 0755
+  check_mode: true
+  register: copy_startup_script
+
+- name: Network | Startup | Backing-up current config if changed/exists
+  copy:
+    src: "{{ nw_hc.network_script_dir }}/{{ startup_script }}"
+    remote_src: true
+    dest: "{{ nw_hc.network_script_dir }}/backup/{{ nw_hc.network_script_dir
+    | replace('/', nw_hc.verification.backup_path_separator) }}{{ nw_hc.verification.backup_path_separator }}{{ startup_script }}"
+    owner: root
+    group: root
+    mode: 0755
+  when:
+    - nw.verification.enable
+    - copy_startup_script_file.stat.exists
+    - copy_startup_script.changed
+
+- name: Network | Startup | Copying script
+  template:
+    src: "templates/usr/local/sbin/ansibleguy.linux_networking/startup.sh.j2"
+    dest: "{{ nw_hc.network_script_dir }}/{{ startup_script }}"
+    owner: root
+    group: root
+    mode: 0755
+  when: >
+    not nw.verification.enable or
+    copy_startup_script.changed
+
+- name: Network | Startup | Copying service files
+  template:
+    src: "templates/etc/systemd/system/{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dst }}"
+    owner: root
+    group: root
+    mode: 0644
+  loop:
+    - {src: 'ansibleguy.linux_networking.startup.service.j2', dst: "{{ nw.startup_service.name }}"}
+    - {src: 'networking.service.d/override.conf.j2', dst: 'networking.service.d/override.conf'}
+
+- name: Network | Startup | Systemd daemon-reload
+  systemd:
+    daemon_reload: yes
